@@ -136,4 +136,98 @@ if st.session_state.analyzed and novel_text:
         st.success(f"✅ วิเคราะห์เสร็จสิ้น! พบตัวละคร (Unique) ทั้งหมด {len(final_char_list)} คน")
 
         # --- สร้าง Tabs ---
-        tab1, tab2, tab3, tab4, tab5 = st.tabs(["🗺️ สิ่งที่ AI พบ
+        tab1, tab2, tab3, tab4, tab5 = st.tabs(["🗺️ สิ่งที่ AI พบ", "📊 สถิติพื้นฐาน", "📈 กราฟอารมณ์", "🕸️ ความสัมพันธ์", "📝 คำซ้ำ"])
+
+        # TAB 1: AI Findings
+        with tab1:
+            st.header("🔍 สิ่งที่ AI ค้นเจอ")
+            st.info("💡 หมายเหตุ: ระบบกรองคำสรรพนาม (เขา, เธอ, ฉัน) ออกให้แล้ว")
+            
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.write(f"**👤 ตัวละคร ({len(final_char_list)})**")
+                # แสดงเป็น Chip สวยๆ
+                st.write(", ".join(final_char_list))
+            with c2:
+                locs = list(set(found_entities['LOCATION']))
+                st.write(f"**📍 สถานที่ ({len(locs)})**")
+                st.write(", ".join(locs))
+            with c3:
+                times = list(set(found_entities['DATE'] + found_entities['TIME']))
+                st.write(f"**📅 เวลา ({len(times)})**")
+                st.write(", ".join(times))
+
+        # TAB 2: Stats
+        with tab2:
+            st.header("สถิติภาพรวม")
+            n_words = len(words)
+            read_time = round(n_words / 200)
+            vocab = set(words)
+            diversity = round((len(vocab) / n_words) * 100, 2)
+            c1, c2, c3 = st.columns(3)
+            c1.metric("จำนวนคำทั้งหมด", f"{n_words:,}")
+            c2.metric("เวลาอ่าน (นาที)", read_time)
+            c3.metric("ความหลากหลายคำ", f"{diversity}%")
+
+        # TAB 3: Sentiment
+        with tab3:
+            st.header("กราฟอารมณ์")
+            chunk_size = 500 # เพิ่มขนาด chunk ให้อ่านกราฟง่ายขึ้น
+            chunks = [words[i:i + chunk_size] for i in range(0, len(words), chunk_size)]
+            sentiment_scores = [analyze_sentiment(chunk) for chunk in chunks]
+            chart_data = pd.DataFrame({'Position': range(len(sentiment_scores)), 'Score': sentiment_scores})
+            line_chart = alt.Chart(chart_data).mark_line(interpolate='basis').encode(
+                x=alt.X('Position', title='ช่วงเวลาของเรื่อง'),
+                y=alt.Y('Score', title='คะแนนอารมณ์'),
+                color=alt.value("#FF4B4B"),
+                tooltip=['Position', 'Score']
+            ).properties(height=350)
+            st.altair_chart(line_chart, use_container_width=True)
+
+        # TAB 4: Network
+        with tab4:
+            st.header("เครือข่ายความสัมพันธ์")
+            if not final_char_list:
+                st.warning("ไม่พบตัวละคร")
+            else:
+                # เลือกเฉพาะตัวละคร Top 15 ตัวแรกที่เจอบ่อยสุด เพื่อไม่ให้กราฟรกจนดูไม่รู้เรื่อง
+                # นับความถี่ชื่อในเนื้อหา
+                char_freq = {name: novel_text.count(name) for name in final_char_list}
+                # เรียงลำดับเอาเฉพาะ Top 15
+                top_chars = sorted(char_freq, key=char_freq.get, reverse=True)[:15]
+                
+                graph = graphviz.Digraph()
+                graph.attr(rankdir='LR')
+                
+                # Logic เดิม แต่ใช้ Top Chars
+                paragraphs = novel_text.split('\n')
+                relations = Counter()
+                
+                for para in paragraphs:
+                    # หาเฉพาะตัวละคร Top 15 ในย่อหน้านั้น
+                    found_in_para = [c for c in top_chars if c in para]
+                    if len(found_in_para) > 1:
+                        for i in range(len(found_in_para)):
+                            for j in range(i+1, len(found_in_para)):
+                                pair = tuple(sorted([found_in_para[i], found_in_para[j]]))
+                                relations[pair] += 1
+                                
+                # วาดกราฟ
+                for char in top_chars:
+                    graph.node(char, style='filled', fillcolor='#D3D3D3')
+                    
+                for (char1, char2), weight in relations.items():
+                    if weight > 0:
+                        # ปรับขนาดเส้นไม่ให้หนาเกินไป
+                        pen_width = min(weight/2, 5) 
+                        graph.edge(char1, char2, penwidth=str(pen_width), label=str(weight))
+                        
+                st.graphviz_chart(graph)
+                st.caption(f"แสดงเฉพาะตัวละครหลัก 15 ตัวแรก (จากทั้งหมด {len(final_char_list)} ตัว) เพื่อความสวยงาม")
+
+        # TAB 5: Word Cloud
+        with tab5:
+            st.header("คำที่ใช้บ่อย")
+            word_counts = Counter(words)
+            df_words = pd.DataFrame(word_counts.most_common(20), columns=['คำศัพท์', 'จำนวนครั้ง'])
+            st.dataframe(df_words, use_container_width=True)
