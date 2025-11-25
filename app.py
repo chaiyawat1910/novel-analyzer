@@ -10,7 +10,7 @@ import io
 st.set_page_config(page_title="Super Novel Analyst (Latest AI)", page_icon="🚀", layout="wide")
 
 st.title("🚀 Super Novel Analyst: เลือกใช้ AI รุ่นล่าสุดได้เอง")
-st.caption("ระบบดึงรายชื่อโมเดล Real-time: รองรับ Gemini 1.5 / 2.0 / Next Gen")
+st.caption("ระบบดึงรายชื่อโมเดล Real-time: รองรับ Gemini ทุกเวอร์ชั่น")
 
 # --- Sidebar ---
 with st.sidebar:
@@ -30,18 +30,17 @@ with st.sidebar:
             model_list = []
             for m in genai.list_models():
                 if 'generateContent' in m.supported_generation_methods:
-                    # เอาเฉพาะตระกูล Gemini
                     if 'gemini' in m.name:
                         model_list.append(m.name)
             
-            # เรียงลำดับเอาตัวใหม่ๆ ขึ้นก่อน (เรียงตามชื่อ)
+            # เรียงลำดับเอาตัวใหม่ๆ ขึ้นก่อน
             model_list.sort(reverse=True)
             
             if model_list:
                 selected_model_name = st.selectbox(
                     "เลือกเวอร์ชั่นโมเดล:", 
                     model_list, 
-                    index=0 # เลือกตัวแรกสุด (มักจะเป็นตัวใหม่สุด)
+                    index=0
                 )
                 st.success(f"กำลังใช้: {selected_model_name}")
             else:
@@ -67,12 +66,13 @@ with col2:
         st.warning("⚠️ กรุณาใส่ Key และเลือกโมเดลทางซ้ายมือก่อน")
         analyze_btn = False
     else:
-        analyze_btn = st.button(f"🚀 ส่งให้ {selected_model_name.split('/')[-1]} วิเคราะห์!", type="primary", use_container_width=True)
+        # ตัดชื่อ model ให้สั้นลงเวลาแสดงบนปุ่ม
+        short_name = selected_model_name.split('/')[-1] if selected_model_name else "AI"
+        analyze_btn = st.button(f"🚀 ส่งให้ {short_name} วิเคราะห์!", type="primary", use_container_width=True)
 
 # --- Logic การทำงาน ---
 if analyze_btn and novel_text and api_key and selected_model_name:
     
-    # Prompt สำหรับสั่งงาน
     prompt = f"""
     Analyze this novel text and return ONLY JSON format.
     Role: Professional Literature Critic.
@@ -89,7 +89,7 @@ if analyze_btn and novel_text and api_key and selected_model_name:
     }}
     *For sentiment_arc, split story into 10 parts, score -10 to 10.
     
-    NO markdown code blocks (```json). Just raw JSON string.
+    NO markdown code blocks. Just raw JSON string.
     
     Text:
     {novel_text[:800000]} 
@@ -97,7 +97,6 @@ if analyze_btn and novel_text and api_key and selected_model_name:
 
     with st.spinner(f'⚡ {selected_model_name} กำลังอ่านนิยาย...'):
         try:
-            # เรียกใช้โมเดลตามที่ผู้ใช้เลือก
             model = genai.GenerativeModel(
                 selected_model_name, 
                 generation_config={"response_mime_type": "application/json"}
@@ -134,15 +133,30 @@ if analyze_btn and novel_text and api_key and selected_model_name:
                     for x in holes: st.write(f"- {x}")
 
             with t2:
-                graph = graphviz.Digraph(attr={'rankdir':'LR'})
+                # --- จุดที่แก้ไข (Fix Graphviz Error) ---
+                # ใช้ graph_attr แทน attr
+                graph = graphviz.Digraph(graph_attr={'rankdir':'LR'})
+                
                 for r in data.get('relations', []):
-                    graph.edge(r.get('source','?'), r.get('target','?'), label=r.get('relation',''), penwidth=str(r.get('weight',1)/2))
+                    # ป้องกัน Error กรณีข้อมูลไม่ครบ
+                    s = r.get('source', 'Unknown')
+                    t = r.get('target', 'Unknown')
+                    rel = r.get('relation', '')
+                    w = r.get('weight', 1)
+                    
+                    graph.edge(s, t, label=rel, penwidth=str(float(w)/2))
+                    
                 st.graphviz_chart(graph)
 
             with t3:
                 df = pd.DataFrame(data.get('sentiment_arc', []))
                 if not df.empty:
-                    c = alt.Chart(df).mark_line(point=True).encode(x='chapter_part', y='score', tooltip=['mood'], color=alt.value('#FF4B4B')).interactive()
+                    c = alt.Chart(df).mark_line(point=True).encode(
+                        x=alt.X('chapter_part', title='ช่วงเวลา'), 
+                        y=alt.Y('score', title='คะแนนอารมณ์'), 
+                        tooltip=['mood', 'score'], 
+                        color=alt.value('#FF4B4B')
+                    ).interactive()
                     st.altair_chart(c, use_container_width=True)
 
             with t4:
@@ -150,7 +164,6 @@ if analyze_btn and novel_text and api_key and selected_model_name:
 
         except Exception as e:
             st.error(f"เกิดข้อผิดพลาด: {e}")
-            st.warning("ลองเปลี่ยนโมเดลอื่นในช่องเลือกด้านซ้ายดูนะครับ")
             if 'response' in locals():
                 st.code(response.text)
 
