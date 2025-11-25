@@ -1,2 +1,5 @@
 streamlit
 pythainlp
+pandas
+altair
+graphviz
