@@ -3,4 +3,4 @@ pythainlp
 pandas
 altair
 graphviz
-python-crfsuite
+google-generativeai
