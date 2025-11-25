@@ -3,3 +3,4 @@ pythainlp
 pandas
 altair
 graphviz
+python-crfsuite
